@@ -2,7 +2,7 @@
 
 Turn a 3D model (`.glb` or `.gltf`) into a game-ready sprite sheet, right in your browser. Nothing is uploaded: the model never leaves your computer.
 
-**Live:** https://jerryfemi.github.io/sprite-rendered/
+**Live:** https://jerryfemi.github.io/glb2sprite/
 
 ## What it does
 
