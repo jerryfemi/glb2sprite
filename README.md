@@ -23,6 +23,16 @@ Every frame is cropped to the **same box**, so animations don't jitter.
 
 Compressed models (Draco, Meshopt), common on Sketchfab and in asset packs, load too.
 
+## Angle sweep (for 3D games)
+
+Tick **Angle sweep (3D flight)** under Frames to draw an object in true perspective in a 2D engine, for example a dart flying away from the camera. The sheet gets one **row per viewing angle**, from almost tail-on (4°) to a full side view (90°), and one **column per spin step**. The tip points up in every frame, so the game only has to:
+
+1. Work out the angle between the camera and the object's direction of travel, and pick the nearest row.
+2. Rotate the frame to the object's on-screen direction.
+3. Scale it for distance.
+
+**Preview angles** shows one frame per row before you render. The sheet saves as `name_sweep.png` and `name_sweep.json`. The JSON adds `angles`, plus `angleRows`, which gives the tip, tail and centre pixel in each row's cell, and `fullLengthPx`, the object's length at a 90° view. Frame keys are `p{colour}_a{angle}_s{spin}`.
+
 ## Who it's for
 
 - **2D and web game developers** (Flutter/Flame, Phaser, PixiJS, Godot, Unity 2D) who want a 3D look without running 3D in the game.

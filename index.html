@@ -307,6 +307,28 @@
 
     <div class="control-group">
       <h3>Frames</h3>
+      <label class="check-row">
+        <input type="checkbox" id="sweepMode">
+        <span>Angle sweep (3D flight)<small>For a game that draws the object in 3D: one row per viewing angle, from tail-on to side view, one column per spin step. The tip points up in every frame. Needs Auto-orient.</small></span>
+      </label>
+      <div id="sweepBlock" hidden>
+        <div class="control-row">
+          <label for="sweepRows">Angles</label>
+          <input type="range" id="sweepRows" min="4" max="16" step="1" value="12">
+          <span class="val" id="sweepRowsVal">12</span>
+        </div>
+        <div class="control-row">
+          <label for="sweepMin">From</label>
+          <input type="range" id="sweepMin" min="0" max="20" step="1" value="4">
+          <span class="val" id="sweepMinVal">4°</span>
+        </div>
+        <div class="control-row">
+          <label for="sweepMax">To</label>
+          <input type="range" id="sweepMax" min="45" max="90" step="5" value="90">
+          <span class="val" id="sweepMaxVal">90°</span>
+        </div>
+        <button class="btn btn-ghost" id="sweepPreviewBtn" type="button" style="width:100%;margin-bottom:8px">Preview angles</button>
+      </div>
       <div class="control-row">
         <label for="spinFrames">Spin frames</label>
         <input type="range" id="spinFrames" min="0" max="16" step="1" value="8">
@@ -320,12 +342,14 @@
           <option value="360">360° (full turn)</option>
         </select>
       </div>
+      <div id="classicBlock">
       <div class="control-row">
         <label for="tiltFrames">Tilted frames</label>
         <input type="range" id="tiltFrames" min="0" max="5" step="1" value="3">
         <span class="val" id="tiltVal">3</span>
       </div>
       <p class="hint">Tilted frames lean left, straight and right, like a dart or arrow stuck in a target. 0 turns them off.</p>
+      </div>
       <h3 style="margin-top:14px">Output</h3>
       <div class="control-row">
         <label for="outSize">Render size</label>
@@ -413,6 +437,9 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
     ['outSize', 'outSizeVal', x => x],
     ['spinFrames', 'spinVal', x => x],
     ['tiltFrames', 'tiltVal', x => x],
+    ['sweepRows', 'sweepRowsVal', x => x],
+    ['sweepMin', 'sweepMinVal', x => x + '°'],
+    ['sweepMax', 'sweepMaxVal', x => x + '°'],
     ['animFrames', 'animVal', x => x],
   ].forEach(([sid, vid, fmt]) => {
     const s = $(sid);
@@ -422,10 +449,40 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
   $('variants').addEventListener('change', () => { $('color2Row').hidden = $('variants').value !== '2'; describeOutput(); });
   $('color1').addEventListener('input', () => applyColor(0));
   $('spinRange').addEventListener('change', describeOutput);
+  $('sweepPreviewBtn').addEventListener('click', async () => {
+    if (!model) return;
+    renderBtn.disabled = true; $('sweepPreviewBtn').disabled = true;
+    saveRow.hidden = true; outputGrid.innerHTML = '';
+    try { await renderSweep(true); } catch (err) { statusEl.textContent = 'Preview failed: ' + err.message; }
+    finally { rendering = false; }
+    renderBtn.disabled = false; $('sweepPreviewBtn').disabled = false;
+    progressBar.hidden = true;
+  });
+  $('sweepMode').addEventListener('change', () => {
+    const on = $('sweepMode').checked;
+    $('sweepBlock').hidden = !on;
+    $('classicBlock').hidden = on;
+    if (on && !$('autoOrient').checked) { $('autoOrient').checked = true; if (currentGltf) setupModel(currentGltf); }
+    if (on && +$('outSize').value > 256) { $('outSize').value = 256; $('outSizeVal').textContent = '256'; }
+    describeOutput();
+  });
   $('objName').addEventListener('input', describeOutput);
   $('autoOrient').addEventListener('change', () => { if (currentGltf) { setupModel(currentGltf); } });
 
   function describeOutput() {
+    if ($('sweepMode').checked) {
+      const rowsN = +$('sweepRows').value, spinN = Math.max(1, +$('spinFrames').value);
+      const colorN = $('recolor').checked ? +$('variants').value : 1;
+      const list = [
+        rowsN + ' viewing angles from ' + $('sweepMin').value + '° (tail-on) to ' + $('sweepMax').value + '° (side view), one row each',
+        spinN + ' spin step' + (spinN > 1 ? 's' : '') + ' across ' + $('spinRange').value + '°, one column each',
+        rowsN * spinN * colorN + ' frames in total, tip pointing up in every frame',
+        $('recolor').checked ? colorN + ' color version' + (colorN > 1 ? 's' : '') : 'Natural colors and textures',
+      ];
+      $('spriteList').innerHTML = list.map(t => '<div class="sprite-item"><div class="dot"></div> ' + escapeHtml(t) + '</div>').join('');
+      saveNote.textContent = 'Contains ' + fileName() + '_sweep.png and ' + fileName() + '_sweep.json (the angle of each row, where the tip and centre sit in each cell).';
+      return;
+    }
     const spinN = +$('spinFrames').value, tiltN = +$('tiltFrames').value;
     const rows = $('recolor').checked ? +$('variants').value : 1;
     const items = ['1 resting frame from the current camera view'];
@@ -923,14 +980,14 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
   $('resetViewBtn').addEventListener('click', () => { if (model) resetView(); });
 
   // ---------- Rendering ----------
-  let atlasJson = null, atlasBlob = null, atlasName = 'sprite';
+  let atlasJson = null, atlasBlob = null, atlasName = 'sprite', atlasSuffix = '_atlas';
 
   renderBtn.addEventListener('click', async () => {
     if (!model) return;
     renderBtn.disabled = true;
     saveRow.hidden = true;
     outputGrid.innerHTML = '';
-    try { await renderAll(); }
+    try { await ($('sweepMode').checked ? renderSweep() : renderAll()); }
     catch (err) { statusEl.textContent = 'Rendering failed: ' + err.message; }
     finally { rendering = false; }
     renderBtn.disabled = false;
@@ -946,6 +1003,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
     const rows = recolor ? +$('variants').value : 1;
     const autoOrient = $('autoOrient').checked;
     atlasName = fileName();
+    atlasSuffix = '_atlas';
     const animCount = currentClip ? +$('animFrames').value : 0;
     const restTime = currentClip ? mixer.time : 0;
     const cols = 1 + animCount + spinCount + tiltCount;
@@ -1102,6 +1160,194 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
     statusEl.textContent = 'Done. ' + out.length + ' frame' + (out.length > 1 ? 's' : '') + ' packed into one sprite sheet.';
   }
 
+  // ---------- Angle sweep (impostor sheet for a 3D game) ----------
+  // Model space after Auto-orient: long axis on Z, tip at z = -1, tail (flights) at z = +1,
+  // centre at the origin. Row r is seen from angle theta between the view direction and the
+  // tip direction: 0° = from straight behind (tail-on), 90° = side view. The camera is
+  // rolled so the tip always points UP in the image; column c spins the object about its
+  // own axis. Lights move with the camera, so every frame is lit the same way on screen.
+  async function renderSweep(preview) {
+    const size = +$('outSize').value;
+    const rowsN = +$('sweepRows').value;
+    const minA = +$('sweepMin').value, maxA = Math.max(minA + 1, +$('sweepMax').value);
+    const spinCount = preview ? 1 : Math.max(1, +$('spinFrames').value);
+    const spinRange = +$('spinRange').value * Math.PI / 180;
+    const recolor = $('recolor').checked;
+    const colorN = recolor ? +$('variants').value : 1;
+    const angles = [];
+    for (let r = 0; r < rowsN; r++) angles.push(rowsN === 1 ? minA : minA + (maxA - minA) * r / (rowsN - 1));
+    const total = colorN * rowsN * spinCount;
+    let done = 0;
+    rendering = true;
+    progressBar.hidden = false;
+    progressFill.style.width = '0%';
+
+    const off = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
+    off.setPixelRatio(1);
+    off.setClearColor(0x000000, 0);
+    off.outputColorSpace = THREE.SRGBColorSpace;
+    off.toneMapping = THREE.ACESFilmicToneMapping;
+    off.setSize(size, size, false);
+    // A narrow lens is close to orthographic, so the game can add its own perspective.
+    const offCam = new THREE.PerspectiveCamera(14, 1, 0.1, 100);
+    const fitDist = 1.1 / Math.sin((offCam.fov * Math.PI / 180) / 2);
+    const origin = new THREE.Vector3(0, 0, 0);
+
+    const pose = { px: pivot.rotation.x, py: pivot.rotation.y, roll: spin.rotation.z };
+    const lightPos = { key: keyLight.position.clone(), rim: rimLight.position.clone() };
+    const KEY_CAM = new THREE.Vector3(1.6, 2.4, 2.2);   // upper right, in front (camera space)
+    const RIM_CAM = new THREE.Vector3(-2.0, 0.6, -2.4); // behind, left
+    pivot.rotation.set(0, 0, 0);
+
+    const tip = new THREE.Vector3(), tail = new THREE.Vector3(), ctr = new THREE.Vector3();
+    function px(vec) { // world point -> pixel in the uncropped frame
+      const q = vec.clone().project(offCam);
+      return { x: (q.x * 0.5 + 0.5) * size, y: (1 - (q.y * 0.5 + 0.5)) * size };
+    }
+    function placeAt(theta) {
+      const t = theta * Math.PI / 180;
+      offCam.position.set(0, -Math.sin(t), Math.cos(t)).multiplyScalar(fitDist);
+      offCam.up.set(0, -Math.cos(t), -Math.sin(t)); // the tip's on-screen direction = up
+      offCam.lookAt(origin);
+      offCam.updateProjectionMatrix();
+      offCam.updateMatrixWorld(true);
+      keyLight.position.copy(KEY_CAM).applyQuaternion(offCam.quaternion);
+      rimLight.position.copy(RIM_CAM).applyQuaternion(offCam.quaternion);
+    }
+    const wait = () => new Promise(r => requestAnimationFrame(() => r()));
+    const out = [];
+    const rowInfo = [];
+
+    for (let ci = 0; ci < colorN; ci++) {
+      applyColor(ci);
+      for (let r = 0; r < rowsN; r++) {
+        placeAt(angles[r]);
+        scene.updateMatrixWorld(true);
+        // Where the tip, tail and centre land (spin does not move them; they are on the axis)
+        tip.set(0, 0, -1);
+        tail.set(0, 0, 1); ctr.set(0, 0, 0);
+        if (ci === 0) rowInfo.push({ angle: +angles[r].toFixed(2), tip: px(tip), tail: px(tail), center: px(ctr) });
+        for (let c = 0; c < spinCount; c++) {
+          spin.rotation.z = pose.roll + (c / spinCount) * spinRange;
+          scene.updateMatrixWorld(true);
+          off.render(scene, offCam);
+          const cv = document.createElement('canvas');
+          cv.width = cv.height = size;
+          cv.getContext('2d', { willReadFrequently: true }).drawImage(off.domElement, 0, 0);
+          out.push({ key: 'p' + (ci + 1) + '_a' + r + '_s' + c, canvas: cv, row: ci * rowsN + r, col: c });
+          done++;
+          progressFill.style.width = Math.round(done / total * 100) + '%';
+          statusEl.textContent = (preview ? 'Previewing ' : 'Rendering ') + done + ' of ' + total + '…';
+          if (done % 4 === 0) await wait();
+        }
+      }
+    }
+
+    pivot.rotation.set(pose.px, pose.py, 0);
+    spin.rotation.z = pose.roll;
+    keyLight.position.copy(lightPos.key);
+    rimLight.position.copy(lightPos.rim);
+    applyColor(0);
+    off.dispose();
+
+    // One shared crop box for every frame, so the axis stays at the same place in every cell.
+    let x0 = size, y0 = size, x1 = -1, y1 = -1;
+    out.forEach(f => {
+      const d = f.canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, size, size).data;
+      for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+        if (d[(y * size + x) * 4 + 3] > 4) {
+          if (x < x0) x0 = x; if (x > x1) x1 = x;
+          if (y < y0) y0 = y; if (y > y1) y1 = y;
+        }
+      }
+    });
+    if (x1 < 0) { statusEl.textContent = 'Nothing was rendered. Reset the view and try again.'; return; }
+    // Keep the box symmetric about the centre column so rotating a frame about its axis is clean.
+    const cx = size / 2, pad = 4;
+    const half = Math.ceil(Math.max(cx - x0, x1 - cx)) + pad;
+    x0 = Math.max(0, Math.floor(cx - half)); x1 = Math.min(size - 1, Math.ceil(cx + half) - 1);
+    y0 = Math.max(0, y0 - pad); y1 = Math.min(size - 1, y1 + pad);
+    const cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+
+    const cols = spinCount, rows = colorN * rowsN;
+    const sheet = document.createElement('canvas');
+    sheet.width = cw * cols; sheet.height = ch * rows;
+    const sctx = sheet.getContext('2d');
+    const frames = {};
+    out.forEach(f => {
+      sctx.drawImage(f.canvas, x0, y0, cw, ch, f.col * cw, f.row * ch, cw, ch);
+      frames[f.key] = { x: f.col * cw, y: f.row * ch, w: cw, h: ch };
+    });
+    const rnd = v => Math.round(v * 10) / 10;
+    const rowsJson = rowInfo.map(ri => ({
+      angle: ri.angle,
+      tip: { x: rnd(ri.tip.x - x0), y: rnd(ri.tip.y - y0) },
+      tail: { x: rnd(ri.tail.x - x0), y: rnd(ri.tail.y - y0) },
+      center: { x: rnd(ri.center.x - x0), y: rnd(ri.center.y - y0) },
+    }));
+    const lengthPx = rnd(Math.abs(rowInfo[rowInfo.length - 1].tail.y - rowInfo[rowInfo.length - 1].tip.y) /
+      Math.max(1e-6, Math.sin(angles[angles.length - 1] * Math.PI / 180)));
+
+    if (preview) {
+      const card = document.createElement('div');
+      card.className = 'output-card';
+      card.style.gridColumn = '1 / -1';
+      const img = document.createElement('img');
+      // Preview: lay the rows out side by side so all angles are visible at once.
+      const strip = document.createElement('canvas');
+      strip.width = cw * rows; strip.height = ch;
+      out.forEach((f, i) => strip.getContext('2d').drawImage(sheet, f.col * cw, f.row * ch, cw, ch, i * cw, 0, cw, ch));
+      img.src = strip.toDataURL('image/png');
+      img.alt = 'Angle preview';
+      const name = document.createElement('div');
+      name.className = 'name';
+      name.textContent = 'Angles, left to right: ' + angles.map(a => Math.round(a) + '°').join(' · ') + '  (tail-on → side view)';
+      card.append(img, name);
+      outputGrid.appendChild(card);
+      statusEl.textContent = 'Preview ready. The first frames should show the flights as an X; the last a full side view with the tip up.';
+      return;
+    }
+
+    atlasName = fileName();
+    atlasSuffix = '_sweep';
+    atlasJson = JSON.stringify({
+      name: atlasName,
+      type: 'angle-sweep',
+      image: atlasName + '_sweep.png',
+      cellWidth: cw, cellHeight: ch, columns: cols, rows,
+      layout: 'Rows: color version (p1, p2) then viewing angle, low to high. Columns: spin steps. ' +
+        'Frame key p{color}_a{angleIndex}_s{spinIndex}. The tip points up in every frame.',
+      angleDefinition: 'Angle between the view direction and the direction the tip points: 0 = seen from straight behind (tail-on), 90 = side view.',
+      angles: angles.map(a => +a.toFixed(2)),
+      spinFrames: cols, spinDegrees: +$('spinRange').value,
+      angleRows: rowsJson,
+      fullLengthPx: lengthPx,
+      naturalColors: !recolor,
+      colors: recolor ? [$('color1').value, $('color2').value].slice(0, colorN) : [],
+      frames,
+      credit: $('credit').textContent
+    }, null, 2);
+    atlasBlob = await new Promise(r => sheet.toBlob(r, 'image/png'));
+
+    const card = document.createElement('div');
+    card.className = 'output-card';
+    card.style.gridColumn = '1 / -1';
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(atlasBlob);
+    img.alt = 'Angle sweep sheet for ' + atlasName;
+    const name = document.createElement('div');
+    name.className = 'name';
+    const big = Math.max(sheet.width, sheet.height) > 4096;
+    name.textContent = atlasName + '_sweep.png · ' + sheet.width + '×' + sheet.height + ' · ' + out.length +
+      ' frames of ' + cw + '×' + ch + ' · ' + Math.round(atlasBlob.size / 1024) + ' KB' +
+      (big ? ' · Over 4096 px: lower the render size or angle count so phones can load it.' : '');
+    card.append(img, name);
+    outputGrid.appendChild(card);
+    describeOutput();
+    saveRow.hidden = false;
+    statusEl.textContent = 'Done. ' + out.length + ' frames packed into one angle sweep sheet.';
+  }
+
   // ---------- Saving ----------
   // Inside Claude the page saves through the downloads capability; opened as a plain file
   // in a browser, it falls back to a normal download link.
@@ -1119,8 +1365,8 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
     saveNote.textContent = 'Packing…';
     try {
       const zip = new JSZip();
-      zip.file(atlasName + '_atlas.png', atlasBlob);
-      zip.file(atlasName + '_atlas.json', atlasJson);
+      zip.file(atlasName + atlasSuffix + '.png', atlasBlob);
+      zip.file(atlasName + atlasSuffix + '.json', atlasJson);
       const blob = await zip.generateAsync({ type: 'blob' });
       const zipName = atlasName + '_sprites.zip';
       if (insideClaude) {
