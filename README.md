@@ -1,8 +1,8 @@
-# Sprite Renderer
+# glb2sprite
 
 Turn a 3D model (`.glb` or `.gltf`) into a game-ready sprite sheet, right in your browser. Nothing is uploaded: the model never leaves your computer.
 
-**Live:** https://jerryfemi.github.io/sprite-rendered/
+**Live:** https://jerryfemi.github.io/glb2sprite/
 
 ## What it does
 
@@ -16,6 +16,8 @@ Each sheet can contain:
 - **Spin frames**, a looping roll across 90°, 120° or 360°. Pick the smallest angle that repeats (90° for four fins or flights) and the sheet stays small.
 - **Tilted frames**, leaning left, straight and right, like a dart or arrow stuck in a target.
 - **Colour versions**: recolour the widest parts (flights, fletching) and get one row per colour.
+
+- **Animation frames**: if the model has animation clips (a bow drawing, a flag waving, a character idle), pick a clip, scrub to any pose, and sample the clip into evenly spaced frames.
 
 Every frame is cropped to the **same box**, so animations don't jitter.
 
@@ -42,7 +44,14 @@ Compressed models (Draco, Meshopt), common on Sketchfab and in asset packs, load
 }
 ```
 
-Rows are colour versions (`p1`, `p2`). Columns are `rest`, then `spin_0…`, then `stuck_0…`. Every cell is the same size, so you can also slice the sheet as a plain grid.
+Rows are colour versions (`p1`, `p2`). Columns are `rest`, then `anim_0…`, then `spin_0…`, then `stuck_0…`. Every cell is the same size, so you can also slice the sheet as a plain grid.
+
+## Controls
+
+- **View buttons**: Front, Back, Left, Right, Top and ¾ snap the camera there.
+- **Arrows** (buttons or keyboard) turn the view 5° at a time; hold Shift for 1°. `+` and `-` zoom.
+- **Double-click** any part to orbit around it.
+- **Parts**: sky domes, floors and backdrops that come with Sketchfab scenes are hidden automatically. Tick or untick any part, then press **Frame object**.
 
 ## Tips
 
