@@ -72,8 +72,9 @@
   .viewport-wrap {
     position: relative;
     width: 100%;
-    aspect-ratio: 4/3;
-    max-height: 55vh;
+    /* Big enough to judge the angle: most of the screen height. */
+    height: min(74vh, 820px);
+    min-height: 320px;
     background: radial-gradient(circle at 50% 40%, #1E2638, #0A0E1A 75%);
     border-radius: 12px;
     overflow: hidden;
@@ -92,7 +93,7 @@
   .credit { font-size: 0.78rem; color: var(--fg2); }
   .credit strong { color: var(--fg); font-weight: 600; }
 
-  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
   .control-group { background: var(--surface); border-radius: 10px; padding: 14px; min-width: 0; }
   .control-group h3, .render-section h3 {
     font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em;
@@ -100,8 +101,18 @@
   }
   .control-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
   .control-row:last-child { margin-bottom: 0; }
-  .control-row label { font-size: 0.82rem; color: var(--fg2); min-width: 70px; }
+  .control-row label { font-size: 0.82rem; color: var(--fg2); min-width: 64px; }
   .control-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+  /* − / + beside every slider, for exact steps */
+  .step-btn {
+    flex: 0 0 auto; width: 28px; height: 28px; border: none; border-radius: 8px;
+    background: var(--surface2); color: var(--fg); font-size: 16px; font-weight: 600; line-height: 1;
+    font-family: inherit; cursor: pointer; display: grid; place-items: center; touch-action: manipulation;
+    transition: transform 80ms ease-out, background 80ms ease-out;
+  }
+  .step-btn:hover { background: #2A3448; }
+  .step-btn:active { transform: scale(0.92); }
+  .step-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .control-row .val { font-size: 0.78rem; min-width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
   .color-pick { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
   .color-pick input[type="color"] {
@@ -496,6 +507,37 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
   }
   describeOutput();
 
+  // − / + on both sides of every slider. Tap for one step, hold to repeat.
+  document.querySelectorAll('input[type="range"]').forEach(r => {
+    const make = (dir) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'step-btn';
+      b.textContent = dir < 0 ? '\u2212' : '+';
+      b.setAttribute('aria-label', (dir < 0 ? 'Decrease ' : 'Increase ') + (r.getAttribute('aria-label') || r.id));
+      const nudgeOnce = () => {
+        const step = parseFloat(r.step) || 1;
+        const v = Math.min(parseFloat(r.max), Math.max(parseFloat(r.min), parseFloat(r.value) + dir * step));
+        const dec = (String(r.step).split('.')[1] || '').length;
+        r.value = v.toFixed(dec);
+        r.dispatchEvent(new Event('input', { bubbles: true }));
+        r.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      let hold = null, repeat = null;
+      const stop = () => { clearTimeout(hold); clearInterval(repeat); hold = repeat = null; };
+      b.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        nudgeOnce();
+        hold = setTimeout(() => { repeat = setInterval(nudgeOnce, 60); }, 350);
+      });
+      ['pointerup', 'pointerleave', 'pointercancel'].forEach(t => b.addEventListener(t, stop));
+      b.addEventListener('click', (e) => { if (e.detail === 0) nudgeOnce(); }); // keyboard
+      return b;
+    };
+    r.before(make(-1));
+    r.after(make(1));
+  });
+
   // ---------- File loading ----------
   dropZone.addEventListener('click', () => fileInput.click());
   dropZone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
@@ -605,7 +647,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
     if (scene) return;
     workspace.hidden = false;
     scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(30, 4 / 3, 0.05, 100);
+    camera = new THREE.PerspectiveCamera(30, 4 / 3, 0.01, 1000);
     camera.position.copy(DEFAULT_CAM);
 
     renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
@@ -629,6 +671,10 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
     controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
+    // The model is scaled to fit ~2 units: never zoom through it or so far
+    // out that it vanishes.
+    controls.minDistance = 0.6;
+    controls.maxDistance = 25;
     renderer.domElement.addEventListener('dblclick', onDoubleClick);
     controls.dampingFactor = 0.08;
 
@@ -889,8 +935,8 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
     if (kind === 'right') sph.theta += r;
     if (kind === 'up') sph.phi = Math.max(0.01, sph.phi - r);
     if (kind === 'down') sph.phi = Math.min(Math.PI - 0.01, sph.phi + r);
-    if (kind === 'in') sph.radius *= 0.9;
-    if (kind === 'out') sph.radius /= 0.9;
+    if (kind === 'in') sph.radius = Math.max(controls.minDistance, sph.radius * 0.9);
+    if (kind === 'out') sph.radius = Math.min(controls.maxDistance, sph.radius / 0.9);
     camera.position.copy(controls.target).add(off.setFromSpherical(sph));
   }
   document.querySelectorAll('[data-nudge]').forEach(b =>
