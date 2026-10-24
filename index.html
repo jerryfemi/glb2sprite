@@ -214,6 +214,11 @@
         <button class="btn btn-ghost" type="button" data-nudge="in" aria-label="Zoom in">+</button>
         <button class="btn btn-ghost" type="button" data-nudge="out" aria-label="Zoom out">−</button>
       </div>
+      <div class="control-row">
+        <label for="zoomSlider">Zoom</label>
+        <input type="range" id="zoomSlider" min="0" max="100" step="1" value="50" aria-label="Zoom">
+        <span class="val" id="zoomVal">50</span>
+      </div>
       <div class="btn-row"><button class="btn btn-ghost" id="frameBtn" type="button" style="flex:1">Frame object</button></div>
       <p class="hint" style="margin-top:8px">Arrows turn the view 5° (arrow keys too; hold Shift for 1°). Double-click a part to orbit around it.</p>
     </div>
@@ -675,6 +680,26 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
     // out that it vanishes.
     controls.minDistance = 0.6;
     controls.maxDistance = 25;
+
+    // Zoom slider <-> camera distance (log scale, so each step feels even).
+    // Moves the preview camera only; renders always fit the whole object.
+    const zoomEl = $('zoomSlider');
+    const lnMin = Math.log(controls.minDistance), lnMax = Math.log(controls.maxDistance);
+    const syncZoom = () => {
+      const d = camera.position.distanceTo(controls.target);
+      const z = Math.round(100 * (lnMax - Math.log(d)) / (lnMax - lnMin));
+      const c = Math.max(0, Math.min(100, z));
+      if (+zoomEl.value !== c) { zoomEl.value = c; $('zoomVal').textContent = c; }
+    };
+    controls.addEventListener('change', syncZoom);
+    zoomEl.addEventListener('input', () => {
+      const z = +zoomEl.value;
+      $('zoomVal').textContent = z;
+      const d = Math.exp(lnMax - (z / 100) * (lnMax - lnMin));
+      const dir = camera.position.clone().sub(controls.target).normalize();
+      camera.position.copy(controls.target).addScaledVector(dir, d);
+      controls.update();
+    });
     renderer.domElement.addEventListener('dblclick', onDoubleClick);
     controls.dampingFactor = 0.08;
 
